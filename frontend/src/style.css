@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --van-font-size-md: 18px; /* 默认字体调大一点，方便老年人 */
+  --van-cell-font-size: 18px;
+  --van-button-default-font-size: 18px;
+}
+
+body {
+  background-color: #f7f8fa;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica,
+    Segoe UI, Arial, Roboto, 'PingFang SC', 'miui', 'Hiragino Sans GB', 'Microsoft Yahei',
+    sans-serif;
+}
