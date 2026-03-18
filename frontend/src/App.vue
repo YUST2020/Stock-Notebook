@@ -8,13 +8,21 @@ import {
   Volume2, 
   GripVertical, 
   RefreshCw,
-  Search
+  Search,
+  Edit2
 } from 'lucide-vue-next'
 import { showConfirmDialog, showToast } from 'vant'
 
 const store = useStockStore()
 const showAddDialog = ref(false)
+const showEditDialog = ref(false)
 const stockCode = ref('')
+const editingStock = ref({
+  code: '',
+  name: '',
+  holdings: 0,
+  costPrice: 0
+})
 const isReporting = ref(false)
 
 const stockList = computed({
@@ -27,6 +35,11 @@ const stockList = computed({
 
 onMounted(() => {
   store.fetchStocks()
+  
+  // 预热 Web Speech API，帮助某些移动端浏览器加载声音列表
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.getVoices()
+  }
 })
 
 const onAdd = async () => {
@@ -41,6 +54,26 @@ const onAdd = async () => {
   }
 }
 
+const onEdit = (stock: any) => {
+  editingStock.value = {
+    code: stock.code,
+    name: stock.name,
+    holdings: stock.holdings || 0,
+    costPrice: stock.costPrice || 0
+  }
+  showEditDialog.value = true
+}
+
+const onUpdate = async () => {
+  const success = await store.updateStock(editingStock.value.code, {
+    holdings: Number(editingStock.value.holdings),
+    costPrice: Number(editingStock.value.costPrice)
+  })
+  if (success) {
+    showEditDialog.value = false
+  }
+}
+
 const onDelete = (code: string, name: string) => {
   showConfirmDialog({
     title: '确认删除',
@@ -51,21 +84,65 @@ const onDelete = (code: string, name: string) => {
 }
 
 const onVoiceReport = async () => {
+  if (!('speechSynthesis' in window)) {
+    showToast('您的浏览器不支持语音播报')
+    return
+  }
+
+  // 1. 立即尝试解锁语音合成 (部分移动端浏览器需要同步调用以触发权限)
+  const unlockUtterance = new SpeechSynthesisUtterance('')
+  window.speechSynthesis.speak(unlockUtterance)
+  window.speechSynthesis.cancel() // 立即取消静默播放
+
   isReporting.value = true
-  const report = await store.getVoiceReport()
-  
-  // 使用浏览器自带的 Web Speech API 进行播报
-  if ('speechSynthesis' in window) {
+  try {
+    const report = await store.getVoiceReport()
+    
+    if (!report) {
+      showToast('没有可播报的内容')
+      isReporting.value = false
+      return
+    }
+
     const utterance = new SpeechSynthesisUtterance(report)
+    
+    // 2. 增强语言设置兼容性
+    const voices = window.speechSynthesis.getVoices()
+    const zhVoice = voices.find(v => v.lang === 'zh-CN' || v.lang === 'zh_CN')
+    if (zhVoice) {
+      utterance.voice = zhVoice
+    }
     utterance.lang = 'zh-CN'
+    utterance.rate = 0.6 // 语速
+    utterance.pitch = 1.0 // 音调
+    
     utterance.onend = () => {
       isReporting.value = false
     }
-    window.speechSynthesis.speak(utterance)
-  } else {
-    showToast('您的浏览器不支持语音播报')
+
+    utterance.onerror = (event) => {
+      console.error('Speech synthesis error:', event)
+      // 某些浏览器（如手机微信/搜狗）可能会抛出 'not-allowed' 错误
+      if (event.error === 'not-allowed') {
+        showToast('请在点击后不要离开页面以允许播报')
+      } else {
+        showToast('语音播报出错: ' + event.error)
+      }
+      isReporting.value = false
+    }
+
+    // 在播报前先取消之前的播报，防止队列堆积
+    window.speechSynthesis.cancel()
+    
+    // 延迟一小会儿执行，有助于某些浏览器的稳定性
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance)
+    }, 100)
+    
+  } catch (error) {
+    console.error('Failed to get report:', error)
+    showToast('获取播报内容失败')
     isReporting.value = false
-    console.log('Report:', report)
   }
 }
 
@@ -107,21 +184,33 @@ const onRefresh = () => {
       >
         <template #item="{ element: stock }">
           <div 
-            class="bg-white rounded-lg shadow-sm overflow-hidden flex items-center p-4 border border-transparent active:border-blue-400"
+            class="bg-white rounded-lg shadow-sm overflow-hidden flex items-center p-3 border border-transparent active:border-blue-400"
           >
-            <div class="drag-handle p-2 mr-2 text-gray-400 cursor-move">
+            <div class="drag-handle flex-shrink-0 p-2 text-gray-400 cursor-move">
               <GripVertical :size="24" />
             </div>
-            <div class="flex-grow">
-              <h3 class="text-2xl font-bold text-gray-800">{{ stock.name }}</h3>
-              <p class="text-lg text-gray-500 font-mono">{{ stock.code }}</p>
+            <div class="flex-grow min-w-0 px-2">
+              <h3 class="text-2xl font-bold text-gray-800 truncate">{{ stock.name }}</h3>
+              <div class="flex flex-wrap items-center gap-2 text-lg text-gray-500 font-mono mt-1">
+                <span>{{ stock.code }}</span>
+                <span v-if="stock.holdings" class="text-blue-600 bg-blue-50 px-2 rounded whitespace-nowrap">持:{{ stock.holdings }}</span>
+                <span v-if="stock.costPrice" class="text-orange-600 bg-orange-50 px-2 rounded whitespace-nowrap">成:{{ stock.costPrice }}</span>
+              </div>
             </div>
-            <button 
-              @click="onDelete(stock.code, stock.name)"
-              class="p-3 text-red-500 active:bg-red-50 rounded-full transition-colors"
-            >
-              <Trash2 :size="24" />
-            </button>
+            <div class="flex-shrink-0 flex items-center gap-1 ml-auto">
+              <button 
+                @click="onEdit(stock)"
+                class="p-3 text-blue-500 active:bg-blue-50 rounded-full transition-colors"
+              >
+                <Edit2 :size="24" />
+              </button>
+              <button 
+                @click="onDelete(stock.code, stock.name)"
+                class="p-3 text-red-500 active:bg-red-50 rounded-full transition-colors"
+              >
+                <Trash2 :size="24" />
+              </button>
+            </div>
           </div>
         </template>
       </draggable>
@@ -164,14 +253,42 @@ const onRefresh = () => {
       <div class="p-6">
         <van-field
           v-model="stockCode"
-          placeholder="请输入股票编码 (如: 600519)"
+          placeholder="请输入股票编码 (如: 600519, 510050)"
           label="编码"
           type="digit"
           size="large"
           class="text-xl border rounded-md"
           autofocus
         />
-        <p class="mt-2 text-sm text-gray-400">目前支持上海(6开头)和深圳(0/3开头)股票</p>
+        <p class="mt-2 text-sm text-gray-400">目前支持上海(6/5开头)和深圳(0/3/1开头)股票</p>
+      </div>
+    </van-dialog>
+
+    <!-- 编辑对话框 -->
+    <van-dialog 
+      v-model:show="showEditDialog" 
+      :title="'编辑: ' + editingStock.name" 
+      show-cancel-button 
+      @confirm="onUpdate"
+      class="text-xl"
+    >
+      <div class="p-6 space-y-4">
+        <van-field
+          v-model="editingStock.holdings"
+          label="持股数"
+          type="digit"
+          placeholder="请输入持股数量"
+          size="large"
+          class="text-xl border rounded-md"
+        />
+        <van-field
+          v-model="editingStock.costPrice"
+          label="成本价"
+          type="number"
+          placeholder="请输入成本价格"
+          size="large"
+          class="text-xl border rounded-md"
+        />
       </div>
     </van-dialog>
   </div>

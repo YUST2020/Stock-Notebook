@@ -7,6 +7,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api
 export interface Stock {
   code: string;
   name: string;
+  holdings?: number;
+  costPrice?: number;
 }
 
 export const useStockStore = defineStore('stock', {
@@ -44,6 +46,20 @@ export const useStockStore = defineStore('stock', {
         showToast('删除成功')
       } catch (err) {
         showToast('删除失败')
+      }
+    },
+    async updateStock(code: string, data: Partial<Stock>) {
+      try {
+        const res = await axios.put(`${API_BASE}/stocks/${code}`, data)
+        const index = this.stocks.findIndex(s => s.code === code)
+        if (index !== -1) {
+          this.stocks[index] = res.data
+        }
+        showToast('更新成功')
+        return true
+      } catch (err) {
+        showToast('更新失败')
+        return false
       }
     },
     async updateOrder(codes: string[]) {

@@ -12,6 +12,8 @@ import iconv from 'iconv-lite';
 interface Stock {
   code: string;
   name: string;
+  holdings?: number; // 持股数
+  costPrice?: number; // 成本价
 }
 
 interface Schema {
@@ -32,15 +34,15 @@ app.use(bodyParser.json());
 
 // 获取自选股列表
 app.get('/api/stocks', (req, res) => {
-  const stocks = db.get('stocks').value();
+  const stocks = (db.get('stocks') as any).value();
   res.json(stocks);
 });
 
 // 格式化股票代码
 function formatCode(code: string) {
-  if (code.startsWith('6')) {
+  if (code.startsWith('6') || code.startsWith('5')) {
     return 'sh' + code;
-  } else if (code.startsWith('0') || code.startsWith('3')) {
+  } else if (code.startsWith('0') || code.startsWith('3') || code.startsWith('1')) {
     return 'sz' + code;
   }
   return code;
@@ -61,6 +63,7 @@ async function fetchStockInfo(code: string) {
     return {
       name: parts[1],
       price: parts[3],
+      changeValue: parts[31], // 涨跌额
       changePercent: parts[32],
       turnoverRate: parts[38], // 换手率
       amount: parts[37], // 成交额 (万元)
@@ -95,6 +98,7 @@ async function fetchStocksInfo(codes: string[]) {
           code: parts[2],
           name: parts[1],
           price: parts[3],
+          changeValue: parts[31], // 涨跌额
           changePercent: parts[32],
           turnoverRate: parts[38],
           amount: parts[37],
@@ -115,44 +119,23 @@ async function fetchStocksInfo(codes: string[]) {
 
 // 添加自选股
 app.post('/api/stocks', async (req, res) => {
-  const { code } = req.body;
+  const { code, holdings, costPrice } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required' });
 
-  const exists = db.get('stocks').find({ code }).value();
+  const exists = (db.get('stocks') as any).find({ code }).value();
   if (exists) return res.status(400).json({ error: 'Stock already exists' });
 
   const info = await fetchStockInfo(code);
   if (!info) return res.status(400).json({ error: 'Invalid stock code or fetch failed' });
 
-  const newStock: Stock = { code, name: info.name };
-  db.get('stocks').push(newStock).write();
+  const newStock: Stock = { 
+    code, 
+    name: info.name,
+    holdings: holdings ? Number(holdings) : 0,
+    costPrice: costPrice ? Number(costPrice) : 0
+  };
+  (db.get('stocks') as any).push(newStock).write();
   res.json(newStock);
-});
-
-// 删除自选股
-app.delete('/api/stocks/:code', (req, res) => {
-  const { code } = req.params;
-  db.get('stocks').remove({ code }).write();
-  res.json({ success: true });
-});
-
-// 语音播报接口
-app.get('/api/voice-report', async (req, res) => {
-  const stocks = db.get('stocks').value() as Stock[];
-  if (!stocks || stocks.length === 0) {
-    return res.send('您当前还没有添加自选股。');
-  }
-
-  const stockInfos = await fetchStocksInfo(stocks.map(s => s.code));
-  
-  const reports = stocks.map(stock => {
-    const info = stockInfos.find(i => i && i.code === stock.code);
-    if (!info) return `${stock.name}数据获取失败。`;
-    return `${stock.name}，当前价格${info.price}元，换手率${info.turnoverRate}百分比，成交额${info.amount}万元。`;
-  });
-
-  const result = `您好，当前自选股行情如下：${reports.join(' ')}`;
-  res.send(result);
 });
 
 // 排序自选股
@@ -160,11 +143,93 @@ app.put('/api/stocks/sort', (req, res) => {
   const { codes } = req.body;
   if (!Array.isArray(codes)) return res.status(400).json({ error: 'Invalid data' });
 
-  const currentStocks = db.get('stocks').value() as Stock[];
+  const currentStocks = (db.get('stocks') as any).value() as Stock[];
   const sortedStocks = codes.map(code => currentStocks.find((s: Stock) => s.code === code)).filter(Boolean) as Stock[];
   
   db.set('stocks', sortedStocks).write();
   res.json(sortedStocks);
+});
+
+// 更新自选股详情
+app.put('/api/stocks/:code', (req, res) => {
+  const { code } = req.params;
+  const { holdings, costPrice } = req.body;
+  
+  const stock = (db.get('stocks') as any).find({ code });
+  if (!stock.value()) return res.status(404).json({ error: 'Stock not found' });
+
+  const updateData: any = {};
+  if (holdings !== undefined) updateData.holdings = Number(holdings);
+  if (costPrice !== undefined) updateData.costPrice = Number(costPrice);
+
+  stock.assign(updateData).write();
+  res.json(stock.value());
+});
+
+// 删除自选股
+app.delete('/api/stocks/:code', (req, res) => {
+  const { code } = req.params;
+  (db.get('stocks') as any).remove({ code }).write();
+  res.json({ success: true });
+});
+
+// 语音播报内容生成函数
+async function getVoiceReportContent() {
+  const stocks = (db.get('stocks') as any).value() as Stock[];
+  if (!stocks || stocks.length === 0) {
+    return '您当前还没有添加自选股。';
+  }
+
+  const stockInfos = await fetchStocksInfo(stocks.map(s => s.code));
+  
+  const reports = stocks.map(stock => {
+    const info = stockInfos.find(i => i && i.code === stock.code);
+    if (!info) return `${stock.name}数据获取失败。`;
+    const changeText = parseFloat(info.changeValue) >= 0 ? `上涨${info.changeValue}` : `下跌${Math.abs(parseFloat(info.changeValue))}`;
+    let report = `${stock.name}，当前价格 ${info.price} ，${changeText}元，换手率百分之${info.turnoverRate}。`;
+    
+    if (stock.holdings && stock.holdings > 0) {
+      const dailyProfit = (parseFloat(info.changeValue) * stock.holdings).toFixed(2);
+      const dailyProfitText = parseFloat(dailyProfit) >= 0 ? `盈利${dailyProfit}` : `亏损${Math.abs(parseFloat(dailyProfit))}`;
+      report += ` 今日${dailyProfitText}元。`;
+      
+      if (stock.costPrice && stock.costPrice > 0) {
+        const totalProfit = ((parseFloat(info.price) - stock.costPrice) * stock.holdings).toFixed(2);
+        const totalProfitText = parseFloat(totalProfit) >= 0 ? `累计盈利${totalProfit}` : `累计亏损${Math.abs(parseFloat(totalProfit))}`;
+        report += ` ${totalProfitText}元。`;
+      }
+    }
+    return report;
+  });
+
+  return `您好，当前自选股行情如下：${reports.join(' ')}`;
+}
+
+// 语音播报接口
+app.get('/api/voice-report', async (req, res) => {
+  const result = await getVoiceReportContent();
+  res.send(result);
+});
+
+// 天猫精灵技能对接接口
+app.post('/', async (req, res) => {
+  const result = await getVoiceReportContent();
+  
+  // 返回符合天猫精灵协议的响应
+  res.json({
+    returnCode: '0',
+    returnValue: {
+      reply: result,
+      resultType: 'RESULT',
+      executeCode: 'SUCCESS',
+      msgInfo: '成功'
+    }
+  });
+});
+
+// 天猫精灵技能验证接口
+app.get('/aligenie/90f1d72a6fa3d2a9b5dfaf1959a5516e.txt', (req, res) => {
+  res.send('Jfc4Z4Ur15JwUBuvUQD5wg7Nu8+l+HscqYlfofbyJdZwb1kCtdquRqaQwQ3aNlrr');
 });
 
 app.listen(port, () => {

@@ -1,12 +1,28 @@
 {
   "stocks": [
     {
-      "code": "600399",
-      "name": "抚顺特钢"
+      "code": "600588",
+      "name": "用友网络",
+      "holdings": 1000,
+      "costPrice": 1.6
     },
     {
-      "code": "600588",
-      "name": "用友网络"
+      "code": "600399",
+      "name": "抚顺特钢",
+      "holdings": 0,
+      "costPrice": 0
+    },
+    {
+      "code": "512070",
+      "name": "证券保险ETF易方达",
+      "holdings": 0,
+      "costPrice": 0
+    },
+    {
+      "code": "000001",
+      "name": "平安银行",
+      "holdings": 0,
+      "costPrice": 0
     }
   ]
 }
