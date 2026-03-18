@@ -163,10 +163,43 @@ app.put('/api/stocks/:code', (req, res) => {
   if (costPrice !== undefined) updateData.costPrice = Number(costPrice);
 
   stock.assign(updateData).write();
-  res.json(stock.value());
-});
-
-// 删除自选股
+   res.json(stock.value());
+ });
+ 
+ // 交易接口 (买入/卖出)
+ app.post('/api/stocks/:code/trade', (req, res) => {
+   const { code } = req.params;
+   const { type, quantity, price } = req.body; // type: 'buy' | 'sell'
+ 
+   const stock = (db.get('stocks') as any).find({ code });
+   const currentStock = stock.value();
+   if (!currentStock) return res.status(404).json({ error: 'Stock not found' });
+ 
+   const qty = Number(quantity);
+   const p = Number(price);
+   let newHoldings = currentStock.holdings || 0;
+   let newCostPrice = currentStock.costPrice || 0;
+ 
+   if (type === 'buy') {
+     // 买入：摊薄成本
+     // 新成本 = (旧持仓 * 旧成本 + 买入持仓 * 买入价格) / (旧持仓 + 买入持仓)
+     const totalCost = (newHoldings * newCostPrice) + (qty * p);
+     newHoldings += qty;
+     newCostPrice = newHoldings > 0 ? totalCost / newHoldings : 0;
+   } else if (type === 'sell') {
+     // 卖出：持仓减少，成本不变（简单逻辑）
+     if (qty > newHoldings) return res.status(400).json({ error: 'Insufficient holdings' });
+     newHoldings -= qty;
+     if (newHoldings === 0) newCostPrice = 0;
+   } else {
+     return res.status(400).json({ error: 'Invalid trade type' });
+   }
+ 
+   stock.assign({ holdings: newHoldings, costPrice: Number(newCostPrice.toFixed(4)) }).write();
+   res.json(stock.value());
+ });
+ 
+ // 删除自选股
 app.delete('/api/stocks/:code', (req, res) => {
   const { code } = req.params;
   (db.get('stocks') as any).remove({ code }).write();

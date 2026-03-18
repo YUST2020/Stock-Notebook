@@ -62,6 +62,20 @@ export const useStockStore = defineStore('stock', {
         return false
       }
     },
+    async tradeStock(code: string, type: 'buy' | 'sell', quantity: number, price: number) {
+      try {
+        const res = await axios.post(`${API_BASE}/stocks/${code}/trade`, { type, quantity, price })
+        const index = this.stocks.findIndex(s => s.code === code)
+        if (index !== -1) {
+          this.stocks[index] = res.data
+        }
+        showToast(type === 'buy' ? '买入成功' : '卖出成功')
+        return true
+      } catch (err: any) {
+        showToast(err.response?.data?.error || '交易失败')
+        return false
+      }
+    },
     async updateOrder(codes: string[]) {
       try {
         const res = await axios.put(`${API_BASE}/stocks/sort`, { codes })

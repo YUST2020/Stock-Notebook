@@ -9,19 +9,29 @@ import {
   GripVertical, 
   RefreshCw,
   Search,
-  Edit2
+  Edit2,
+  ArrowUpCircle,
+  ArrowDownCircle
 } from 'lucide-vue-next'
 import { showConfirmDialog, showToast } from 'vant'
 
 const store = useStockStore()
 const showAddDialog = ref(false)
 const showEditDialog = ref(false)
+const showTradeDialog = ref(false)
 const stockCode = ref('')
 const editingStock = ref({
   code: '',
   name: '',
   holdings: 0,
   costPrice: 0
+})
+const tradeInfo = ref({
+  code: '',
+  name: '',
+  type: 'buy' as 'buy' | 'sell',
+  quantity: '',
+  price: ''
 })
 const isReporting = ref(false)
 
@@ -71,6 +81,38 @@ const onUpdate = async () => {
   })
   if (success) {
     showEditDialog.value = false
+  }
+}
+
+const onOpenTrade = (stock: any, type: 'buy' | 'sell') => {
+  tradeInfo.value = {
+    code: stock.code,
+    name: stock.name,
+    type,
+    quantity: '',
+    price: ''
+  }
+  showTradeDialog.value = true
+}
+
+const onTrade = async () => {
+  if (!tradeInfo.value.quantity) {
+    showToast('请输入数量')
+    return
+  }
+  if (tradeInfo.value.type === 'buy' && !tradeInfo.value.price) {
+    showToast('请输入买入价格')
+    return
+  }
+
+  const success = await store.tradeStock(
+    tradeInfo.value.code,
+    tradeInfo.value.type,
+    Number(tradeInfo.value.quantity),
+    Number(tradeInfo.value.price || 0)
+  )
+  if (success) {
+    showTradeDialog.value = false
   }
 }
 
@@ -174,41 +216,71 @@ const onRefresh = () => {
       </div>
 
       <draggable 
-        v-else
         v-model="stockList" 
         item-key="code"
         handle=".drag-handle"
         ghost-class="opacity-50"
         :animation="200"
-        class="space-y-3"
+        class="space-y-4"
       >
         <template #item="{ element: stock }">
           <div 
-            class="bg-white rounded-lg shadow-sm overflow-hidden flex items-center p-3 border border-transparent active:border-blue-400"
+            class="bg-white rounded-xl shadow-md overflow-hidden p-4 border-2 border-transparent active:border-blue-400"
           >
-            <div class="drag-handle flex-shrink-0 p-2 text-gray-400 cursor-move">
-              <GripVertical :size="24" />
-            </div>
-            <div class="flex-grow min-w-0 px-2">
-              <h3 class="text-2xl font-bold text-gray-800 truncate">{{ stock.name }}</h3>
-              <div class="flex flex-wrap items-center gap-2 text-lg text-gray-500 font-mono mt-1">
-                <span>{{ stock.code }}</span>
-                <span v-if="stock.holdings" class="text-blue-600 bg-blue-50 px-2 rounded whitespace-nowrap">持:{{ stock.holdings }}</span>
-                <span v-if="stock.costPrice" class="text-orange-600 bg-orange-50 px-2 rounded whitespace-nowrap">成:{{ stock.costPrice }}</span>
+            <!-- 顶部：拖拽手柄、股票名称和代码 -->
+            <div class="flex items-start mb-3">
+              <div class="drag-handle flex-shrink-0 p-3 -ml-3 mr-2 text-gray-400 cursor-move self-center">
+                <GripVertical :size="32" />
+              </div>
+              <div class="flex-grow min-w-0">
+                <div class="flex flex-col">
+                  <h3 class="text-3xl font-bold text-gray-900 leading-tight break-words">{{ stock.name }}</h3>
+                  <span class="text-xl text-gray-500 font-mono mt-1">{{ stock.code }}</span>
+                </div>
               </div>
             </div>
-            <div class="flex-shrink-0 flex items-center gap-1 ml-auto">
+
+            <!-- 中间：持仓信息（垂直排列，减少水平占用） -->
+            <div v-if="stock.holdings || stock.costPrice" class="bg-gray-50 rounded-lg p-3 space-y-2 mb-4">
+              <div v-if="stock.holdings" class="flex justify-between items-center text-xl">
+                <span class="text-gray-500">当前持股</span>
+                <span class="text-blue-600 font-bold font-mono">{{ stock.holdings }} 股</span>
+              </div>
+              <div v-if="stock.costPrice" class="flex justify-between items-center text-xl">
+                <span class="text-gray-500">持仓成本</span>
+                <span class="text-orange-600 font-bold font-mono">{{ stock.costPrice }} 元</span>
+              </div>
+            </div>
+
+            <!-- 底部：操作按钮（网格排列，大尺寸易点击） -->
+            <div class="grid grid-cols-4 gap-3 border-t border-gray-100 pt-4">
+              <button 
+                @click="onOpenTrade(stock, 'buy')"
+                class="flex flex-col items-center justify-center p-3 bg-red-50 text-red-600 rounded-xl active:bg-red-100 transition-colors"
+              >
+                <ArrowUpCircle :size="32" />
+                <span class="text-lg font-bold mt-1">买入</span>
+              </button>
+              <button 
+                @click="onOpenTrade(stock, 'sell')"
+                class="flex flex-col items-center justify-center p-3 bg-green-50 text-green-700 rounded-xl active:bg-green-100 transition-colors"
+              >
+                <ArrowDownCircle :size="32" />
+                <span class="text-lg font-bold mt-1">卖出</span>
+              </button>
               <button 
                 @click="onEdit(stock)"
-                class="p-3 text-blue-500 active:bg-blue-50 rounded-full transition-colors"
+                class="flex flex-col items-center justify-center p-3 bg-blue-50 text-blue-600 rounded-xl active:bg-blue-100 transition-colors"
               >
-                <Edit2 :size="24" />
+                <Edit2 :size="32" />
+                <span class="text-lg font-bold mt-1">修改</span>
               </button>
               <button 
                 @click="onDelete(stock.code, stock.name)"
-                class="p-3 text-red-500 active:bg-red-50 rounded-full transition-colors"
+                class="flex flex-col items-center justify-center p-3 bg-gray-50 text-gray-400 rounded-xl active:bg-gray-200 transition-colors"
               >
-                <Trash2 :size="24" />
+                <Trash2 :size="32" />
+                <span class="text-lg font-bold mt-1">删除</span>
               </button>
             </div>
           </div>
@@ -290,9 +362,45 @@ const onRefresh = () => {
           class="text-xl border rounded-md"
         />
       </div>
-    </van-dialog>
-  </div>
-</template>
+     </van-dialog>
+ 
+     <!-- 交易对话框 -->
+     <van-dialog 
+       v-model:show="showTradeDialog" 
+       :title="(tradeInfo.type === 'buy' ? '买入: ' : '卖出: ') + tradeInfo.name" 
+       show-cancel-button 
+       @confirm="onTrade"
+       class="text-xl"
+     >
+       <div class="p-6 space-y-4">
+         <van-field
+           v-model="tradeInfo.quantity"
+           :label="tradeInfo.type === 'buy' ? '买入数量' : '卖出数量'"
+           type="digit"
+           placeholder="请输入股票数量"
+           size="large"
+           class="text-xl border rounded-md"
+           autofocus
+         />
+         <van-field
+           v-if="tradeInfo.type === 'buy'"
+           v-model="tradeInfo.price"
+           label="买入价格"
+           type="number"
+           placeholder="请输入本次买入单价"
+           size="large"
+           class="text-xl border rounded-md"
+         />
+         <p v-if="tradeInfo.type === 'buy'" class="text-sm text-gray-500">
+           提示：买入后系统将自动重新计算摊薄后的成本价。
+         </p>
+         <p v-else class="text-sm text-gray-500">
+           提示：卖出将减少持仓数量，成本价保持不变。
+         </p>
+       </div>
+     </van-dialog>
+   </div>
+ </template>
 
 <style>
 /* 适配高缩放比例 */
