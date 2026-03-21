@@ -11,7 +11,9 @@ import {
   Search,
   Edit2,
   ArrowUpCircle,
-  ArrowDownCircle
+  ArrowDownCircle,
+  Settings,
+  FolderKanban
 } from 'lucide-vue-next'
 import { showConfirmDialog, showToast } from 'vant'
 
@@ -19,12 +21,26 @@ const store = useStockStore()
 const showAddDialog = ref(false)
 const showEditDialog = ref(false)
 const showTradeDialog = ref(false)
+const showSettingsDialog = ref(false)
+const showGroupManageDialog = ref(false)
+const showGroupPicker = ref(false)
 const stockCode = ref('')
+const speechRate = ref(store.speechRate)
+const activeTab = ref('')
+const newGroupName = ref('')
+
+// 确保对话框打开时语速值是最新的
+const openSettings = () => {
+  speechRate.value = store.speechRate
+  showSettingsDialog.value = true
+}
+
 const editingStock = ref({
   code: '',
   name: '',
   holdings: 0,
-  costPrice: 0
+  costPrice: 0,
+  groupId: '' as string | undefined
 })
 const tradeInfo = ref({
   code: '',
@@ -35,15 +51,42 @@ const tradeInfo = ref({
 })
 const isReporting = ref(false)
 
+const filteredStocks = computed(() => {
+  if (!activeTab.value) return store.stocks
+  return store.stocks.filter(s => s.groupId === activeTab.value)
+})
+
 const stockList = computed({
-  get: () => store.stocks,
+  get: () => filteredStocks.value,
   set: (value) => {
-    store.stocks = value
+    // 保持未显示的股票不动，只更新当前分组的顺序
+    const otherStocks = store.stocks.filter(s => activeTab.value ? s.groupId !== activeTab.value : false)
+    const newOrder = [...value, ...otherStocks]
+    store.stocks = newOrder
     store.updateOrder(value.map(s => s.code))
   }
 })
 
+const groupPickerColumns = computed(() => {
+  return [
+    { text: '全部(无分组)', value: '' },
+    ...store.groups.map(g => ({ text: g.name, value: g.id }))
+  ]
+})
+
+const onGroupPickerConfirm = ({ selectedOptions }: any) => {
+  editingStock.value.groupId = selectedOptions[0].value
+  showGroupPicker.value = false
+}
+
+const getGroupName = (groupId: string | undefined) => {
+  if (!groupId) return '全部(无分组)'
+  const group = store.groups.find(g => g.id === groupId)
+  return group ? group.name : '全部(无分组)'
+}
+
 onMounted(() => {
+  store.fetchGroups()
   store.fetchStocks()
   
   // 预热 Web Speech API，帮助某些移动端浏览器加载声音列表
@@ -52,12 +95,37 @@ onMounted(() => {
   }
 })
 
+const onAddGroup = async () => {
+  if (!newGroupName.value) {
+    showToast('请输入分组名称')
+    return
+  }
+  const success = await store.addGroup(newGroupName.value)
+  if (success) {
+    newGroupName.value = ''
+  }
+}
+
+const onDeleteGroup = (id: string, name: string) => {
+  showConfirmDialog({
+    title: '确认删除分组',
+    message: `确定要删除分组 "${name}" 吗？该分组下的股票不会被删除。`,
+  }).then(() => {
+    store.deleteGroup(id)
+    if (activeTab.value === id) {
+      activeTab.value = ''
+    }
+  })
+}
+
 const onAdd = async () => {
   if (!stockCode.value) {
     showToast('请输入股票编码')
     return
   }
-  const success = await store.addStock(stockCode.value)
+  // 如果当前在某个分组下，添加时直接分配到该分组
+  const groupId = activeTab.value || undefined
+  const success = await store.addStock(stockCode.value, groupId)
   if (success) {
     showAddDialog.value = false
     stockCode.value = ''
@@ -69,7 +137,8 @@ const onEdit = (stock: any) => {
     code: stock.code,
     name: stock.name,
     holdings: stock.holdings || 0,
-    costPrice: stock.costPrice || 0
+    costPrice: stock.costPrice || 0,
+    groupId: stock.groupId || ''
   }
   showEditDialog.value = true
 }
@@ -77,7 +146,8 @@ const onEdit = (stock: any) => {
 const onUpdate = async () => {
   const success = await store.updateStock(editingStock.value.code, {
     holdings: Number(editingStock.value.holdings),
-    costPrice: Number(editingStock.value.costPrice)
+    costPrice: Number(editingStock.value.costPrice),
+    groupId: editingStock.value.groupId || undefined
   })
   if (success) {
     showEditDialog.value = false
@@ -138,7 +208,7 @@ const onVoiceReport = async () => {
 
   isReporting.value = true
   try {
-    const report = await store.getVoiceReport()
+    const report = await store.getVoiceReport(activeTab.value)
     
     if (!report) {
       showToast('没有可播报的内容')
@@ -155,7 +225,7 @@ const onVoiceReport = async () => {
       utterance.voice = zhVoice
     }
     utterance.lang = 'zh-CN'
-    utterance.rate = 0.6 // 语速
+    utterance.rate = store.speechRate // 语速
     utterance.pitch = 1.0 // 音调
     
     utterance.onend = () => {
@@ -195,13 +265,30 @@ const onRefresh = () => {
 
 <template>
   <div class="min-h-screen bg-gray-100 pb-20">
-    <van-nav-bar title="股票查询播报平台" fixed placeholder class="bg-blue-600 text-white shadow-md">
-      <template #right>
-        <button @click="onRefresh" class="p-2 text-blue-600">
-          <RefreshCw :size="24" />
+    <van-nav-bar title="股票查询播报平台" fixed placeholder class="bg-blue-600 text-white shadow-md z-50">
+      <template #left>
+        <button @click="openSettings" class="p-2 text-blue-600">
+          <Settings :size="24" />
         </button>
       </template>
+      <template #right>
+        <div class="flex items-center gap-2">
+          <button @click="showGroupManageDialog = true" class="p-2 text-blue-600">
+            <FolderKanban :size="24" />
+          </button>
+          <button @click="onRefresh" class="p-2 text-blue-600">
+            <RefreshCw :size="24" />
+          </button>
+        </div>
+      </template>
     </van-nav-bar>
+
+    <div class="sticky top-[46px] z-40 bg-gray-100 pb-2">
+      <van-tabs v-model:active="activeTab" class="mb-2 shadow-sm">
+        <van-tab title="全部" name=""></van-tab>
+        <van-tab v-for="group in store.groups" :key="group.id" :title="group.name" :name="group.id"></van-tab>
+      </van-tabs>
+    </div>
 
     <main class="p-4 max-w-lg mx-auto">
       <!-- 加载状态显示 -->
@@ -210,9 +297,9 @@ const onRefresh = () => {
       </div>
 
       <!-- 空状态显示 -->
-      <div v-else-if="store.stocks.length === 0" class="flex flex-col items-center justify-center py-20 text-gray-500">
+      <div v-else-if="filteredStocks.length === 0" class="flex flex-col items-center justify-center py-20 text-gray-500">
         <Search :size="48" class="mb-4 opacity-20" />
-        <p class="text-xl">还没有自选股，点击下方按钮添加</p>
+        <p class="text-xl">当前分组没有自选股，点击下方按钮添加</p>
       </div>
 
       <draggable 
@@ -361,8 +448,27 @@ const onRefresh = () => {
           size="large"
           class="text-xl border rounded-md"
         />
+        <van-field
+          :model-value="getGroupName(editingStock.groupId)"
+          is-link
+          readonly
+          label="所属分组"
+          placeholder="选择分组"
+          size="large"
+          class="text-xl border rounded-md"
+          @click="showGroupPicker = true"
+        />
       </div>
      </van-dialog>
+
+     <van-popup v-model:show="showGroupPicker" round position="bottom">
+       <van-picker
+         :columns="groupPickerColumns"
+         @cancel="showGroupPicker = false"
+         @confirm="onGroupPickerConfirm"
+         title="选择分组"
+       />
+     </van-popup>
  
      <!-- 交易对话框 -->
      <van-dialog 
@@ -397,6 +503,80 @@ const onRefresh = () => {
          <p v-else class="text-sm text-gray-500">
            提示：卖出将减少持仓数量，成本价保持不变。
          </p>
+       </div>
+     </van-dialog>
+
+     <!-- 设置对话框 -->
+     <van-dialog 
+       v-model:show="showSettingsDialog" 
+       title="播报设置" 
+       show-cancel-button 
+       @confirm="store.setSpeechRate(speechRate)"
+       class="text-xl"
+     >
+       <div class="p-6 space-y-6">
+         <div class="space-y-4">
+           <div class="flex justify-between items-center">
+             <span class="text-lg text-gray-600">语速调整</span>
+             <span class="text-blue-600 font-bold font-mono">{{ speechRate.toFixed(1) }}x</span>
+           </div>
+           <van-slider 
+             v-model="speechRate" 
+             :min="0.1" 
+             :max="2.0" 
+             :step="0.1" 
+             active-color="#3b82f6"
+           >
+             <template #button>
+               <div class="w-6 h-6 bg-blue-600 rounded-full border-2 border-white shadow-md"></div>
+             </template>
+           </van-slider>
+           <div class="flex justify-between text-xs text-gray-400">
+             <span>慢</span>
+             <span>正常 (1.0)</span>
+             <span>快</span>
+           </div>
+         </div>
+       </div>
+     </van-dialog>
+
+     <!-- 分组管理对话框 -->
+     <van-dialog 
+       v-model:show="showGroupManageDialog" 
+       title="分组管理" 
+       class="text-xl"
+       confirm-button-text="关闭"
+     >
+       <div class="p-6 space-y-4 max-h-96 overflow-y-auto">
+         <!-- 添加新分组 -->
+         <div class="flex gap-2">
+           <van-field
+             v-model="newGroupName"
+             placeholder="输入新分组名称"
+             class="border rounded-md flex-1"
+           />
+           <van-button type="primary" @click="onAddGroup" class="rounded-md">添加</van-button>
+         </div>
+
+         <!-- 分组列表 -->
+         <div v-if="store.groups.length === 0" class="text-center text-gray-400 py-4">
+           暂无分组
+         </div>
+         <div v-else class="space-y-2 mt-4">
+           <div 
+             v-for="group in store.groups" 
+             :key="group.id" 
+             class="flex justify-between items-center p-3 bg-gray-50 rounded-lg"
+           >
+             <span class="text-lg font-bold">{{ group.name }}</span>
+             <button 
+               @click="onDeleteGroup(group.id, group.name)"
+               class="p-2 text-red-500 active:bg-red-100 rounded-full transition-colors"
+             >
+               <Trash2 :size="20" />
+             </button>
+           </div>
+         </div>
        </div>
      </van-dialog>
    </div>

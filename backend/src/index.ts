@@ -14,23 +14,78 @@ interface Stock {
   name: string;
   holdings?: number; // 持股数
   costPrice?: number; // 成本价
+  groupId?: string; // 分组ID
+}
+
+interface Group {
+  id: string;
+  name: string;
 }
 
 interface Schema {
   stocks: Stock[];
+  groups: Group[];
 }
 
 const adapter = new FileSync(path.join(__dirname, '../db.json'));
 const db = low(adapter);
 
 // 初始化数据库
-db.defaults({ stocks: [] }).write();
+db.defaults({ stocks: [], groups: [] }).write();
 
 const app = express();
 const port = 3001;
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// 获取分组列表
+app.get('/api/groups', (req, res) => {
+  const groups = (db.get('groups') as any).value();
+  res.json(groups);
+});
+
+// 添加分组
+app.post('/api/groups', (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  const id = Date.now().toString();
+  const newGroup: Group = { id, name };
+  (db.get('groups') as any).push(newGroup).write();
+  res.json(newGroup);
+});
+
+// 更新分组名称
+app.put('/api/groups/:id', (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+
+  const group = (db.get('groups') as any).find({ id });
+  if (!group.value()) return res.status(404).json({ error: 'Group not found' });
+
+  group.assign({ name }).write();
+  res.json(group.value());
+});
+
+// 删除分组
+app.delete('/api/groups/:id', (req, res) => {
+  const { id } = req.params;
+  
+  // 删除分组
+  (db.get('groups') as any).remove({ id }).write();
+  
+  // 将该分组下的所有股票的 groupId 置空
+  const stocks = (db.get('stocks') as any).value() as Stock[];
+  stocks.forEach((stock: Stock) => {
+    if (stock.groupId === id) {
+      (db.get('stocks') as any).find({ code: stock.code }).assign({ groupId: undefined }).write();
+    }
+  });
+
+  res.json({ success: true });
+});
 
 // 获取自选股列表
 app.get('/api/stocks', (req, res) => {
@@ -119,7 +174,7 @@ async function fetchStocksInfo(codes: string[]) {
 
 // 添加自选股
 app.post('/api/stocks', async (req, res) => {
-  const { code, holdings, costPrice } = req.body;
+  const { code, holdings, costPrice, groupId } = req.body;
   if (!code) return res.status(400).json({ error: 'Code is required' });
 
   const exists = (db.get('stocks') as any).find({ code }).value();
@@ -132,7 +187,8 @@ app.post('/api/stocks', async (req, res) => {
     code, 
     name: info.name,
     holdings: holdings ? Number(holdings) : 0,
-    costPrice: costPrice ? Number(costPrice) : 0
+    costPrice: costPrice ? Number(costPrice) : 0,
+    groupId: groupId || undefined
   };
   (db.get('stocks') as any).push(newStock).write();
   res.json(newStock);
@@ -144,16 +200,20 @@ app.put('/api/stocks/sort', (req, res) => {
   if (!Array.isArray(codes)) return res.status(400).json({ error: 'Invalid data' });
 
   const currentStocks = (db.get('stocks') as any).value() as Stock[];
+  // 只排序在 codes 里的股票，其他股票保持在后面或原位
   const sortedStocks = codes.map(code => currentStocks.find((s: Stock) => s.code === code)).filter(Boolean) as Stock[];
+  const remainingStocks = currentStocks.filter(s => !codes.includes(s.code));
   
-  db.set('stocks', sortedStocks).write();
-  res.json(sortedStocks);
+  const newStocks = [...sortedStocks, ...remainingStocks];
+  
+  db.set('stocks', newStocks).write();
+  res.json(newStocks);
 });
 
 // 更新自选股详情
 app.put('/api/stocks/:code', (req, res) => {
   const { code } = req.params;
-  const { holdings, costPrice } = req.body;
+  const { holdings, costPrice, groupId } = req.body;
   
   const stock = (db.get('stocks') as any).find({ code });
   if (!stock.value()) return res.status(404).json({ error: 'Stock not found' });
@@ -161,6 +221,7 @@ app.put('/api/stocks/:code', (req, res) => {
   const updateData: any = {};
   if (holdings !== undefined) updateData.holdings = Number(holdings);
   if (costPrice !== undefined) updateData.costPrice = Number(costPrice);
+  if (groupId !== undefined) updateData.groupId = groupId === '' ? undefined : groupId;
 
   stock.assign(updateData).write();
    res.json(stock.value());
@@ -207,8 +268,13 @@ app.delete('/api/stocks/:code', (req, res) => {
 });
 
 // 语音播报内容生成函数
-async function getVoiceReportContent() {
-  const stocks = (db.get('stocks') as any).value() as Stock[];
+async function getVoiceReportContent(groupId?: string) {
+  let stocks = (db.get('stocks') as any).value() as Stock[];
+  
+  if (groupId) {
+    stocks = stocks.filter(s => s.groupId === groupId);
+  }
+
   if (!stocks || stocks.length === 0) {
     return '您当前还没有添加自选股。';
   }
@@ -240,7 +306,8 @@ async function getVoiceReportContent() {
 
 // 语音播报接口
 app.get('/api/voice-report', async (req, res) => {
-  const result = await getVoiceReportContent();
+  const { groupId } = req.query;
+  const result = await getVoiceReportContent(groupId as string);
   res.send(result);
 });
 

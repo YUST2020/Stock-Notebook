@@ -4,7 +4,8 @@
       "code": "600588",
       "name": "用友网络",
       "holdings": 2000,
-      "costPrice": 11.8
+      "costPrice": 11.8,
+      "groupId": "1774117700974"
     },
     {
       "code": "600399",
@@ -23,6 +24,12 @@
       "name": "平安银行",
       "holdings": 0,
       "costPrice": 0
+    }
+  ],
+  "groups": [
+    {
+      "id": "1774117700974",
+      "name": "shangz"
     }
   ]
 }
