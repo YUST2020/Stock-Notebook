@@ -1,35 +1,92 @@
 {
   "stocks": [
     {
-      "code": "600588",
-      "name": "用友网络",
-      "holdings": 2000,
-      "costPrice": 11.8,
-      "groupId": "1774117700974"
-    },
-    {
-      "code": "600399",
-      "name": "抚顺特钢",
-      "holdings": 0,
-      "costPrice": 0
+      "code": "588760",
+      "name": "科创人工智能ETF广发",
+      "holdings": 20000,
+      "costPrice": 0.324,
+      "groupId": "1774351773246"
     },
     {
       "code": "512070",
       "name": "证券保险ETF易方达",
-      "holdings": 0,
-      "costPrice": 0
+      "holdings": 40000,
+      "costPrice": 0.878,
+      "groupId": "1774351773246"
     },
     {
-      "code": "000001",
-      "name": "平安银行",
-      "holdings": 0,
-      "costPrice": 0
+      "code": "159883",
+      "name": "医疗器械ETF",
+      "holdings": 150000,
+      "costPrice": 0.52,
+      "groupId": "1774351773246"
+    },
+    {
+      "code": "159949",
+      "name": "创业板50ETF华安",
+      "holdings": 10000,
+      "costPrice": -7.343,
+      "groupId": "1774351773246"
+    },
+    {
+      "code": "159919",
+      "name": "沪深300ETF嘉实",
+      "holdings": 23000,
+      "costPrice": 3.182,
+      "groupId": "1774351773246"
+    },
+    {
+      "code": "601669",
+      "name": "中国电建",
+      "holdings": 10000,
+      "costPrice": 5.609,
+      "groupId": "1774352124001"
+    },
+    {
+      "code": "300185",
+      "name": "通裕重工",
+      "holdings": 20000,
+      "costPrice": 2.166,
+      "groupId": "1774352124001"
+    },
+    {
+      "code": "600111",
+      "name": "北方稀土",
+      "holdings": 1000,
+      "costPrice": 43.933,
+      "groupId": "1774352124001"
+    },
+    {
+      "code": "513180",
+      "name": "恒生科技ETF华夏",
+      "holdings": 80000,
+      "costPrice": 0.606,
+      "groupId": "1774351773246"
+    },
+    {
+      "code": "600372",
+      "name": "中航机载",
+      "holdings": 15000,
+      "costPrice": 13.5,
+      "groupId": "1774352124001"
+    },
+    {
+      "code": "002599",
+      "name": "盛通股份",
+      "holdings": 5000,
+      "costPrice": 7.465,
+      "groupId": "1774352124001"
     }
   ],
+  "logs": [],
   "groups": [
     {
-      "id": "1774117700974",
-      "name": "shangz"
+      "id": "1774351773246",
+      "name": "etf"
+    },
+    {
+      "id": "1774352124001",
+      "name": "自选1"
     }
   ]
 }

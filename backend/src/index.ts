@@ -22,9 +22,16 @@ interface Group {
   name: string;
 }
 
+interface LogEntry {
+  id: string;
+  body: string;
+  timestamp: string;
+}
+
 interface Schema {
   stocks: Stock[];
   groups: Group[];
+  logs: LogEntry[];
 }
 
 const adapter = new FileSync(path.join(__dirname, '../db.json'));
@@ -301,7 +308,7 @@ async function getVoiceReportContent(groupId?: string) {
     return report;
   });
 
-  return `您好，当前自选股行情如下：${reports.join(' ')}`;
+  return `您好，当前行情如下：${reports.join(' ')}`;
 }
 
 // 语音播报接口
@@ -311,9 +318,28 @@ app.get('/api/voice-report', async (req, res) => {
   res.send(result);
 });
 
+// 天猫精灵意图(intentId)到股票分组(groupId)的映射配置
+// 新增/修改映射只需在此处添加一行：['意图ID'] = '分组ID'
+const INTENT_GROUP_MAP: Record<string, string> = {
+  '198224': '1774351773246', // 类别一 → etf
+  '198225': '1774352124001', // 自选股查询 → 自选1
+};
+
 // 天猫精灵技能对接接口
 app.post('/', async (req, res) => {
-  const result = await getVoiceReportContent();
+  // 记录天猫精灵请求日志
+  const logEntry: LogEntry = {
+    id: Date.now().toString() + Math.random().toString(36).substring(2, 8),
+    body: JSON.stringify(req.body),
+    timestamp: new Date().toISOString()
+  };
+  (db.get('logs') as any).push(logEntry).write();
+
+  // 根据意图ID匹配对应的分组（未匹配时为 undefined，播报全部自选股）
+  const intentId = req.body?.intentId;
+  const groupId = INTENT_GROUP_MAP[intentId];
+
+  const result = await getVoiceReportContent(groupId);
   
   // 返回符合天猫精灵协议的响应
   res.json({
